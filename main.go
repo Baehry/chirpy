@@ -14,10 +14,10 @@ type apiConfig struct {
 func main() {
 	var apiCfg apiConfig
 	mux := http.NewServeMux()
-	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
-	mux.HandleFunc("GET /healthz", HealthzHandler)
-	mux.HandleFunc("GET /metrics", apiCfg.MetricsHandler)
-	mux.HandleFunc("POST /reset", apiCfg.ResetHandler)
+	mux.Handle("/app/", http.StripPrefix("/app", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
+	mux.HandleFunc("GET /api/healthz", HealthzHandler)
+	mux.HandleFunc("GET /api/metrics", apiCfg.MetricsHandler)
+	mux.HandleFunc("POST /api/reset", apiCfg.ResetHandler)
 	server := http.Server {
 		Handler: mux,
 		Addr: ":8080",
