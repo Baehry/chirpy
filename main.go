@@ -12,6 +12,7 @@ import (
 	"github.com/Baehry/chirpy/internal/database"
 	"database/sql"
 	"github.com/google/uuid"
+	"github.com/Baehry/chirpy/internal/auth"
 )
 
 type apiConfig struct {
@@ -40,6 +41,8 @@ func main() {
 	mux.HandleFunc("POST /api/users", apiCfg.UsersHandler)
 	mux.HandleFunc("POST /api/chirps", apiCfg.ChirpsHandler)
 	mux.HandleFunc("GET /api/chirps", apiCfg.GetChirpsHandler)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.GetChirpHandler)
+	mux.HandleFunc("POST /api/login", apiCfg.LoginHandler)
 	server := http.Server {
 		Handler: mux,
 		Addr: ":8080",
@@ -136,12 +139,17 @@ func (cfg *apiConfig) ChirpsHandler(writer http.ResponseWriter, request *http.Re
 
 func (cfg *apiConfig) UsersHandler(writer http.ResponseWriter, request *http.Request) {
 	type parameters struct {
+		Password string `json:"password"`
         Email string `json:"email"`
     }
 	decoder := json.NewDecoder(request.Body)
     var params parameters
     decoder.Decode(&params)
-	user, err := cfg.dbQueries.CreateUser(request.Context(), params.Email)
+	hashedPassword, _ := auth.HashPassword(params.Password)
+	user, err := cfg.dbQueries.CreateUser(request.Context(), database.CreateUserParams{
+		Email: params.Email,
+		HashedPassword: hashedPassword,
+	})
 	if err != nil {
 		fmt.Printf("%v\n", err)
 	}
@@ -153,6 +161,50 @@ func (cfg *apiConfig) UsersHandler(writer http.ResponseWriter, request *http.Req
 func (cfg *apiConfig) GetChirpsHandler(writer http.ResponseWriter, request *http.Request) {
 	result, _ := cfg.dbQueries.GetAllChirps(request.Context())
 	dat, _ := json.Marshal(result)
+	writer.WriteHeader(200)
+	writer.Write(dat)
+}
+
+func (cfg *apiConfig) GetChirpHandler(writer http.ResponseWriter, request *http.Request) {
+	id, err := uuid.Parse(request.PathValue("chirpID"))
+	if err != nil {
+		writer.WriteHeader(404)
+		return
+	}
+	result, err := cfg.dbQueries.GetChirp(request.Context(), id)
+	if err != nil {
+		writer.WriteHeader(404)
+		return
+	}
+	dat, _ := json.Marshal(result)
+	writer.WriteHeader(200)
+	writer.Write(dat)
+}
+
+func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Request) {
+	type parameters struct {
+		Password string `json:"password"`
+        Email string `json:"email"`
+    }
+	decoder := json.NewDecoder(request.Body)
+    var params parameters
+    decoder.Decode(&params)
+	user, err := cfg.dbQueries.GetUserByEmail(request.Context(), params.Email)
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte("Incorrect email or password"))
+		return
+	}
+	if valid, err := auth.CheckPasswordHash(params.Password, user.HashedPassword); (!valid) || (err != nil) {
+		writer.WriteHeader(401)
+		writer.Write([]byte("Incorrect email or password"))
+		return
+	}
+	dat, err := json.Marshal(user)
+	if err != nil {
+		writer.WriteHeader(500)
+		writer.Write([]byte(err.Error()))
+	}
 	writer.WriteHeader(200)
 	writer.Write(dat)
 }
