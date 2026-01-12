@@ -38,8 +38,8 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", HealthzHandler)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.MetricsHandler)
 	mux.HandleFunc("POST /admin/reset", apiCfg.ResetHandler)
-	mux.HandleFunc("POST /api/validate_chirp", ValidateChirpHandler)
 	mux.HandleFunc("POST /api/users", apiCfg.UsersHandler)
+	mux.HandleFunc("POST /api/chirps", apiCfg.ChirpsHandler)
 	server := http.Server {
 		Handler: mux,
 		Addr: ":8080",
@@ -74,20 +74,32 @@ func (cfg *apiConfig) ResetHandler(writer http.ResponseWriter, request *http.Req
 	cfg.dbQueries.ResetUsers(request.Context())
 }
 
-func ValidateChirpHandler(writer http.ResponseWriter, request *http.Request) {
+func (cfg *apiConfig) ChirpsHandler(writer http.ResponseWriter, request *http.Request) {
 	writer.Header().Add("Content-Type", "text/json; charset=utf-8")
 	type parameters struct {
         Body string `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
     }
 	type errorObj struct {
 		Error string `json:"error"`
 	}
-	type resultCleaned struct {
-		CleanedBody string `json:"cleaned_body"`
+	type Chirp struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Body      string 	`json:"body"`
+		UserID    uuid.UUID `json:"user_id"`
 	}
     decoder := json.NewDecoder(request.Body)
     var params parameters
-    decoder.Decode(&params)
+    if err := decoder.Decode(&params); err != nil {
+		errObj := errorObj {
+			Error: err.Error(),
+		}
+		dat, _ := json.Marshal(errObj)
+		writer.WriteHeader(500)
+		writer.Write(dat)
+	}
 	if len(params.Body) > 140 {
 		errObj := errorObj{
 			Error: "Chirp is too long",
@@ -103,11 +115,34 @@ func ValidateChirpHandler(writer http.ResponseWriter, request *http.Request) {
 			splitString[i] = "****"
 		}
 	}
-	resCleaned := resultCleaned{
-		CleanedBody: strings.Join(splitString, " "),
+	result, err := cfg.dbQueries.CreateChirp(request.Context(), database.CreateChirpParams{
+		Body: strings.Join(splitString, " "),
+		UserID: params.UserID,
+	})
+	if err != nil {
+		errObj := errorObj {
+			Error: err.Error(),
+		}
+		dat, _ := json.Marshal(errObj)
+		writer.WriteHeader(500)
+		writer.Write(dat)
 	}
-	dat, _ := json.Marshal(resCleaned)
-	writer.WriteHeader(200)
+	dat, err := json.Marshal(Chirp {
+		ID: result.ID,
+		CreatedAt: result.CreatedAt,
+		UpdatedAt: result.UpdatedAt,
+		Body: result.Body,
+		UserID: result.UserID,
+	})
+	if err != nil {
+		errObj := errorObj {
+			Error: err.Error(),
+		}
+		dat, _ := json.Marshal(errObj)
+		writer.WriteHeader(500)
+		writer.Write(dat)
+	}
+	writer.WriteHeader(201)
 	writer.Write(dat)
 	return
 }
