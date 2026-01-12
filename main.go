@@ -11,7 +11,6 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/Baehry/chirpy/internal/database"
 	"database/sql"
-	"time"
 	"github.com/google/uuid"
 )
 
@@ -40,6 +39,7 @@ func main() {
 	mux.HandleFunc("POST /admin/reset", apiCfg.ResetHandler)
 	mux.HandleFunc("POST /api/users", apiCfg.UsersHandler)
 	mux.HandleFunc("POST /api/chirps", apiCfg.ChirpsHandler)
+	mux.HandleFunc("GET /api/chirps", apiCfg.GetChirpsHandler)
 	server := http.Server {
 		Handler: mux,
 		Addr: ":8080",
@@ -83,13 +83,6 @@ func (cfg *apiConfig) ChirpsHandler(writer http.ResponseWriter, request *http.Re
 	type errorObj struct {
 		Error string `json:"error"`
 	}
-	type Chirp struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Body      string 	`json:"body"`
-		UserID    uuid.UUID `json:"user_id"`
-	}
     decoder := json.NewDecoder(request.Body)
     var params parameters
     if err := decoder.Decode(&params); err != nil {
@@ -127,13 +120,7 @@ func (cfg *apiConfig) ChirpsHandler(writer http.ResponseWriter, request *http.Re
 		writer.WriteHeader(500)
 		writer.Write(dat)
 	}
-	dat, err := json.Marshal(Chirp {
-		ID: result.ID,
-		CreatedAt: result.CreatedAt,
-		UpdatedAt: result.UpdatedAt,
-		Body: result.Body,
-		UserID: result.UserID,
-	})
+	dat, err := json.Marshal(result)
 	if err != nil {
 		errObj := errorObj {
 			Error: err.Error(),
@@ -151,12 +138,6 @@ func (cfg *apiConfig) UsersHandler(writer http.ResponseWriter, request *http.Req
 	type parameters struct {
         Email string `json:"email"`
     }
-	type User struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Email     string    `json:"email"`
-	}
 	decoder := json.NewDecoder(request.Body)
     var params parameters
     decoder.Decode(&params)
@@ -164,14 +145,15 @@ func (cfg *apiConfig) UsersHandler(writer http.ResponseWriter, request *http.Req
 	if err != nil {
 		fmt.Printf("%v\n", err)
 	}
-	actualUser := User{
-		ID: user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email: user.Email,
-	}
-	dat, _ := json.Marshal(actualUser)
+	dat, _ := json.Marshal(user)
 	writer.WriteHeader(201)
+	writer.Write(dat)
+}
+
+func (cfg *apiConfig) GetChirpsHandler(writer http.ResponseWriter, request *http.Request) {
+	result, _ := cfg.dbQueries.GetAllChirps(request.Context())
+	dat, _ := json.Marshal(result)
+	writer.WriteHeader(200)
 	writer.Write(dat)
 }
 
