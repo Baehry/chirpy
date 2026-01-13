@@ -6,6 +6,8 @@ import (
 	"time"
 	"github.com/google/uuid"
 	"fmt"
+	"strings"
+	"net/http"
 )
 
 func HashPassword(password string) (string, error) {
@@ -36,4 +38,12 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return uuid.Parse(claims.Subject)
 	}
 	return uuid.Nil, fmt.Errorf("invalid token")
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	authHeader := headers.Get("Authorization")
+	if authHeader == "" {
+		return "", fmt.Errorf("token string not found")
+	}
+	return strings.Split(authHeader, " ")[1], nil
 }

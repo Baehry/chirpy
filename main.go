@@ -13,12 +13,14 @@ import (
 	"database/sql"
 	"github.com/google/uuid"
 	"github.com/Baehry/chirpy/internal/auth"
+	"time"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries *database.Queries
 	platform string
+	tokenSecret string
 }
 
 func main() {
@@ -33,6 +35,7 @@ func main() {
 	var apiCfg apiConfig
 	apiCfg.dbQueries = dbQueries
 	apiCfg.platform = os.Getenv("PLATFORM")
+	apiCfg.tokenSecret = os.Getenv("SECRET")
 	mux := http.NewServeMux()
 	mux.Handle("/app/", http.StripPrefix("/app", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 	mux.HandleFunc("GET /api/healthz", HealthzHandler)
@@ -81,7 +84,6 @@ func (cfg *apiConfig) ChirpsHandler(writer http.ResponseWriter, request *http.Re
 	writer.Header().Add("Content-Type", "text/json; charset=utf-8")
 	type parameters struct {
         Body string `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
     }
 	type errorObj struct {
 		Error string `json:"error"`
@@ -95,6 +97,26 @@ func (cfg *apiConfig) ChirpsHandler(writer http.ResponseWriter, request *http.Re
 		dat, _ := json.Marshal(errObj)
 		writer.WriteHeader(500)
 		writer.Write(dat)
+	}
+	token, err := auth.GetBearerToken(request.Header)
+	if err != nil {
+		errObj := errorObj{
+			Error: "Chirp is too long",
+		}
+		dat, _ := json.Marshal(errObj)
+		writer.WriteHeader(401)
+		writer.Write(dat)
+		return
+	}
+	id, err := auth.ValidateJWT(token, cfg.tokenSecret)
+	if err != nil {
+		errObj := errorObj{
+			Error: "Chirp is too long",
+		}
+		dat, _ := json.Marshal(errObj)
+		writer.WriteHeader(401)
+		writer.Write(dat)
+		return
 	}
 	if len(params.Body) > 140 {
 		errObj := errorObj{
@@ -113,7 +135,7 @@ func (cfg *apiConfig) ChirpsHandler(writer http.ResponseWriter, request *http.Re
 	}
 	result, err := cfg.dbQueries.CreateChirp(request.Context(), database.CreateChirpParams{
 		Body: strings.Join(splitString, " "),
-		UserID: params.UserID,
+		UserID: id,
 	})
 	if err != nil {
 		errObj := errorObj {
@@ -185,7 +207,15 @@ func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Req
 	type parameters struct {
 		Password string `json:"password"`
         Email string `json:"email"`
+		ExpiresInSeconds int `json:"expires_in_seconds"`
     }
+	type result struct {
+		Id uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email string `json:"email"`
+		Token string `json:"token"`
+	}
 	decoder := json.NewDecoder(request.Body)
     var params parameters
     decoder.Decode(&params)
@@ -200,7 +230,24 @@ func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Req
 		writer.Write([]byte("Incorrect email or password"))
 		return
 	}
-	dat, err := json.Marshal(user)
+	var token string
+	if params.ExpiresInSeconds != 0 {
+		token, err = auth.MakeJWT(user.ID, cfg.tokenSecret, time.Duration(params.ExpiresInSeconds) * time.Second)
+	} else {
+		token, err = auth.MakeJWT(user.ID, cfg.tokenSecret, 100 * time.Second)
+	}
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	dat, err := json.Marshal(result{
+		Id: user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email: user.Email,
+		Token: token,
+	})
 	if err != nil {
 		writer.WriteHeader(500)
 		writer.Write([]byte(err.Error()))
