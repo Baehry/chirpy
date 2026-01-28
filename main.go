@@ -46,6 +46,8 @@ func main() {
 	mux.HandleFunc("GET /api/chirps", apiCfg.GetChirpsHandler)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.GetChirpHandler)
 	mux.HandleFunc("POST /api/login", apiCfg.LoginHandler)
+	mux.HandleFunc("POST /api/refresh", apiCfg.RefreshHandler)
+	mux.HandleFunc("POST /api/revoke", apiCfg.RevokeHandler)
 	server := http.Server {
 		Handler: mux,
 		Addr: ":8080",
@@ -207,7 +209,6 @@ func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Req
 	type parameters struct {
 		Password string `json:"password"`
         Email string `json:"email"`
-		ExpiresInSeconds int `json:"expires_in_seconds"`
     }
 	type result struct {
 		Id uuid.UUID `json:"id"`
@@ -215,6 +216,7 @@ func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Req
 		UpdatedAt time.Time `json:"updated_at"`
 		Email string `json:"email"`
 		Token string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 	decoder := json.NewDecoder(request.Body)
     var params parameters
@@ -230,12 +232,23 @@ func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Req
 		writer.Write([]byte("Incorrect email or password"))
 		return
 	}
-	var token string
-	if params.ExpiresInSeconds != 0 {
-		token, err = auth.MakeJWT(user.ID, cfg.tokenSecret, time.Duration(params.ExpiresInSeconds) * time.Second)
-	} else {
-		token, err = auth.MakeJWT(user.ID, cfg.tokenSecret, 100 * time.Second)
+	token, err := auth.MakeJWT(user.ID, cfg.tokenSecret, 100 * time.Second)
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
 	}
+	refreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	rtParams := database.CreateRefreshTokenParams{
+		Token: refreshToken,
+		UserID: user.ID,
+	}
+	rt, err := cfg.dbQueries.CreateRefreshToken(request.Context(), rtParams)
 	if err != nil {
 		writer.WriteHeader(401)
 		writer.Write([]byte(err.Error()))
@@ -247,6 +260,7 @@ func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Req
 		UpdatedAt: user.UpdatedAt,
 		Email: user.Email,
 		Token: token,
+		RefreshToken: rt.Token,
 	})
 	if err != nil {
 		writer.WriteHeader(500)
@@ -254,6 +268,62 @@ func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Req
 	}
 	writer.WriteHeader(200)
 	writer.Write(dat)
+}
+func (cfg *apiConfig) RefreshHandler(writer http.ResponseWriter, request *http.Request) {
+	type result struct {
+		Token string `json:"token"`
+	}
+	token, err := auth.GetBearerToken(request.Header)
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	valid, err := cfg.dbQueries.CheckValidToken(request.Context())
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	if !valid.Bool {
+		writer.WriteHeader(401)
+		return
+	}
+	user, err := cfg.dbQueries.GetUserFromRefreshToken(request.Context(), token)
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	atoken, err := auth.MakeJWT(user.ID, cfg.tokenSecret, 100 * time.Second)
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	dat, err := json.Marshal(result{
+		Token: atoken,
+	})
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	writer.WriteHeader(200)
+	writer.Write(dat)
+}
+
+func (cfg *apiConfig) RevokeHandler(writer http.ResponseWriter, request *http.Request) {
+	token, err := auth.GetBearerToken(request.Header)
+	if err != nil {
+		writer.WriteHeader(401)
+		return
+	}
+	if cfg.dbQueries.RevokeToken(request.Context(), token) != nil {
+		writer.WriteHeader(401)
+		return
+	}
+	writer.WriteHeader(204)
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {

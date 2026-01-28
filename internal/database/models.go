@@ -5,6 +5,7 @@
 package database
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,4 +25,13 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string 	`json:"email"`
 	HashedPassword string `json:"-"`
+}
+
+type RefreshToken struct {
+	Token     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	UserID    uuid.UUID
+	ExpiresAt time.Time
+	RevokedAt sql.NullTime
 }
