@@ -49,6 +49,7 @@ func main() {
 	mux.HandleFunc("POST /api/refresh", apiCfg.RefreshHandler)
 	mux.HandleFunc("POST /api/revoke", apiCfg.RevokeHandler)
 	mux.HandleFunc("PUT /api/users", apiCfg.PutUsersHandler)
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.DeleteChirpHandler)
 	server := http.Server {
 		Handler: mux,
 		Addr: ":8080",
@@ -364,6 +365,44 @@ func (cfg *apiConfig) PutUsersHandler(writer http.ResponseWriter, request *http.
 	}
 	writer.WriteHeader(200)
 	writer.Write(dat)
+}
+
+func (cfg *apiConfig) DeleteChirpHandler(writer http.ResponseWriter, request *http.Request) {
+	token, err := auth.GetBearerToken(request.Header)
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.tokenSecret)
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	id, err := uuid.Parse(request.PathValue("chirpID"))
+	if err != nil {
+		writer.WriteHeader(404)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	result, err := cfg.dbQueries.GetChirp(request.Context(), id)
+	if err != nil {
+		writer.WriteHeader(404)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	if result.UserID != userID {
+		writer.WriteHeader(403)
+		writer.Write([]byte("wrong user"))
+		return
+	}
+	if err := cfg.dbQueries.DeleteChirp(request.Context(), result.ID); err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	writer.WriteHeader(204)
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
