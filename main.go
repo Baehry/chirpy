@@ -21,6 +21,7 @@ type apiConfig struct {
 	dbQueries *database.Queries
 	platform string
 	tokenSecret string
+	polkaKey string
 }
 
 func main() {
@@ -36,6 +37,7 @@ func main() {
 	apiCfg.dbQueries = dbQueries
 	apiCfg.platform = os.Getenv("PLATFORM")
 	apiCfg.tokenSecret = os.Getenv("SECRET")
+	apiCfg.polkaKey = os.Getenv("POLKA_KEY")
 	mux := http.NewServeMux()
 	mux.Handle("/app/", http.StripPrefix("/app", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 	mux.HandleFunc("GET /api/healthz", HealthzHandler)
@@ -415,6 +417,15 @@ func (cfg *apiConfig) WebhooksHandler(writer http.ResponseWriter, request *http.
 			UserID uuid.UUID `json:"user_id"`
 		} `json:"data"`
 	}
+	apiKey, err := auth.GetAPIKey(request.Header)
+	if err != nil {
+		writer.WriteHeader(401)
+		return
+	}
+	if apiKey != cfg.polkaKey {
+		writer.WriteHeader(401)
+		return
+	}
 	decoder := json.NewDecoder(request.Body)
     var params parameters
     decoder.Decode(&params)
@@ -423,7 +434,7 @@ func (cfg *apiConfig) WebhooksHandler(writer http.ResponseWriter, request *http.
 		return
 	}
 	if err := cfg.dbQueries.UpgradeUser(request.Context(), params.Data.UserID); err != nil {
-		writer.WriteHeader(404)
+		writer.WriteHeader(401)
 		writer.Write([]byte(err.Error()))
 		return
 	}
