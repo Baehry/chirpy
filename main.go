@@ -188,7 +188,14 @@ func (cfg *apiConfig) UsersHandler(writer http.ResponseWriter, request *http.Req
 }
 
 func (cfg *apiConfig) GetChirpsHandler(writer http.ResponseWriter, request *http.Request) {
-	result, _ := cfg.dbQueries.GetAllChirps(request.Context())
+	authorID, exists := request.URL.Query()["author_id"]
+	var result []database.Chirp
+	if exists {
+		id, _ := uuid.Parse(authorID[0])
+		result, _ = cfg.dbQueries.GetChirpsByUser(request.Context(), id)
+	} else {
+		result, _ = cfg.dbQueries.GetAllChirps(request.Context())
+	}
 	dat, _ := json.Marshal(result)
 	writer.WriteHeader(200)
 	writer.Write(dat)
