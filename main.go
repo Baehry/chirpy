@@ -50,6 +50,7 @@ func main() {
 	mux.HandleFunc("POST /api/revoke", apiCfg.RevokeHandler)
 	mux.HandleFunc("PUT /api/users", apiCfg.PutUsersHandler)
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.DeleteChirpHandler)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.WebhooksHandler)
 	server := http.Server {
 		Handler: mux,
 		Addr: ":8080",
@@ -219,6 +220,7 @@ func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Req
 		Email string `json:"email"`
 		Token string `json:"token"`
 		RefreshToken string `json:"refresh_token"`
+		IsChirpyRed bool `json:"is_chirpy_red"`
 	}
 	decoder := json.NewDecoder(request.Body)
     var params parameters
@@ -263,6 +265,7 @@ func (cfg *apiConfig) LoginHandler(writer http.ResponseWriter, request *http.Req
 		Email: user.Email,
 		Token: token,
 		RefreshToken: rt.Token,
+		IsChirpyRed: user.IsChirpyRed,
 	})
 	if err != nil {
 		writer.WriteHeader(500)
@@ -403,6 +406,29 @@ func (cfg *apiConfig) DeleteChirpHandler(writer http.ResponseWriter, request *ht
 		return
 	}
 	writer.WriteHeader(204)
+}
+
+func (cfg *apiConfig) WebhooksHandler(writer http.ResponseWriter, request *http.Request) {
+	type parameters struct {
+		Event string `json:"event"`
+		Data struct {
+			UserID uuid.UUID `json:"user_id"`
+		} `json:"data"`
+	}
+	decoder := json.NewDecoder(request.Body)
+    var params parameters
+    decoder.Decode(&params)
+	if params.Event != "user.upgraded" {
+		writer.WriteHeader(204)
+		return
+	}
+	if err := cfg.dbQueries.UpgradeUser(request.Context(), params.Data.UserID); err != nil {
+		writer.WriteHeader(404)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	writer.WriteHeader(204)
+	return
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {

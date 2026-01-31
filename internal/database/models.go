@@ -19,14 +19,6 @@ type Chirp struct {
 	UserID    uuid.UUID `json:"user_id"`
 }
 
-type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string 	`json:"email"`
-	HashedPassword string `json:"-"`
-}
-
 type RefreshToken struct {
 	Token     string
 	CreatedAt time.Time
@@ -34,4 +26,13 @@ type RefreshToken struct {
 	UserID    uuid.UUID
 	ExpiresAt time.Time
 	RevokedAt sql.NullTime
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string 	`json:"email"`
+	HashedPassword string `json:"-"`
+	IsChirpyRed    bool `json:"is_chirpy_red"`
 }
