@@ -48,6 +48,7 @@ func main() {
 	mux.HandleFunc("POST /api/login", apiCfg.LoginHandler)
 	mux.HandleFunc("POST /api/refresh", apiCfg.RefreshHandler)
 	mux.HandleFunc("POST /api/revoke", apiCfg.RevokeHandler)
+	mux.HandleFunc("PUT /api/users", apiCfg.PutUsersHandler)
 	server := http.Server {
 		Handler: mux,
 		Addr: ":8080",
@@ -324,6 +325,45 @@ func (cfg *apiConfig) RevokeHandler(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	writer.WriteHeader(204)
+}
+
+func (cfg *apiConfig) PutUsersHandler(writer http.ResponseWriter, request *http.Request) {
+	token, err := auth.GetBearerToken(request.Header)
+	if err != nil {
+		writer.WriteHeader(401)
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.tokenSecret)
+	if err != nil {
+		writer.WriteHeader(401)
+		return
+	}
+	type parameters struct {
+		Email string `json:"email"`
+		Password string `json:"password"`
+	}
+	decoder := json.NewDecoder(request.Body)
+    var params parameters
+    decoder.Decode(&params)
+	hashedPassword, err := auth.HashPassword(params.Password)
+	updateUserParams := database.UpdateUserParams{
+		ID: userID,
+		Email: params.Email,
+		HashedPassword: hashedPassword,
+	}
+	user, err := cfg.dbQueries.UpdateUser(request.Context(), updateUserParams)
+	if err != nil {
+		writer.WriteHeader(401)
+		return
+	}
+	dat, err := json.Marshal(user)
+	if err != nil {
+		writer.WriteHeader(401)
+		writer.Write([]byte(err.Error()))
+		return
+	}
+	writer.WriteHeader(200)
+	writer.Write(dat)
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
