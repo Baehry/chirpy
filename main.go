@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/Baehry/chirpy/internal/auth"
 	"time"
+	"sort"
 )
 
 type apiConfig struct {
@@ -188,13 +189,22 @@ func (cfg *apiConfig) UsersHandler(writer http.ResponseWriter, request *http.Req
 }
 
 func (cfg *apiConfig) GetChirpsHandler(writer http.ResponseWriter, request *http.Request) {
-	authorID, exists := request.URL.Query()["author_id"]
+	sortOp, exist := request.URL.Query()["sort"]
+	if !exist {
+		sortOp[0] = "asc"
+ 	}
+ 	authorID, exists := request.URL.Query()["author_id"]
 	var result []database.Chirp
 	if exists {
 		id, _ := uuid.Parse(authorID[0])
 		result, _ = cfg.dbQueries.GetChirpsByUser(request.Context(), id)
 	} else {
 		result, _ = cfg.dbQueries.GetAllChirps(request.Context())
+	}
+	if sortOp[0] == "desc" {
+		sort.Slice(result, func(i, j int) bool {
+    		return result[i].CreatedAt.After(result[j].CreatedAt)
+		})
 	}
 	dat, _ := json.Marshal(result)
 	writer.WriteHeader(200)
